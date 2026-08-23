@@ -446,3 +446,12 @@ a { color: inherit; }
   display: inline-block;
   margin-bottom: 4px;
 }
+
+/* Optional training-log fields (RPE / pain) — harmless for pages that don't use them */
+.actual-row { flex-wrap: wrap; }
+.actual-small { flex: 0 1 78px; }
+@media (max-width: 520px) {
+  .actual-row { display: grid; grid-template-columns: 1fr 1fr; }
+  .actual-note { grid-column: 1 / -1; }
+  .actual-small { width: 100%; }
+}

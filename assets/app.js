@@ -100,7 +100,7 @@ async function renderWorkout() {
     return Object.values(state.done).filter(Boolean).length;
   }
   function actualFor(idx) {
-    return state.actuals[idx] || { weight: "", reps: "", note: "" };
+    return state.actuals[idx] || { weight: "", reps: "", rpe: "", pain: "", note: "" };
   }
 
   function draw() {
@@ -139,6 +139,8 @@ async function renderWorkout() {
           <div class="actual-row" data-idx="${idx}">
             <input class="actual-input" type="text" inputmode="decimal" placeholder="вес, кг" data-field="weight" data-idx="${idx}" value="${escapeAttr(a.weight)}">
             <input class="actual-input" type="text" placeholder="повторы / время" data-field="reps" data-idx="${idx}" value="${escapeAttr(a.reps)}">
+            ${ex.trackRpe ? `<input class="actual-input actual-small" type="number" min="1" max="10" step="0.5" placeholder="RPE" data-field="rpe" data-idx="${idx}" value="${escapeAttr(a.rpe)}">` : ""}
+            ${ex.trackPain ? `<input class="actual-input actual-small" type="number" min="0" max="10" step="1" placeholder="боль" data-field="pain" data-idx="${idx}" value="${escapeAttr(a.pain)}">` : ""}
             <input class="actual-input actual-note" type="text" placeholder="заметка" data-field="note" data-idx="${idx}" value="${escapeAttr(a.note)}">
           </div>
           <div class="sync-hint" id="sync-hint-${idx}"></div>` : ""}
@@ -253,9 +255,9 @@ function syncEntry(w, ex, idx) {
 async function doSyncEntry(w, ex, idx) {
   const hint = document.getElementById(`sync-hint-${idx}`);
   const stored = JSON.parse(localStorage.getItem(`workout-progress:${w.id}:${w.date || ""}`) || "{}");
-  const a = (stored.actuals && stored.actuals[idx]) || { weight: "", reps: "", note: "" };
+  const a = (stored.actuals && stored.actuals[idx]) || { weight: "", reps: "", rpe: "", pain: "", note: "" };
 
-  if (!a.weight && !a.reps && !a.note) return; // nothing to send yet
+  if (!a.weight && !a.reps && !a.rpe && !a.pain && !a.note) return; // nothing to send yet
 
   if (!REPORT_ENDPOINT) {
     if (hint) {
@@ -276,6 +278,8 @@ async function doSyncEntry(w, ex, idx) {
     exercise: ex.name,
     weight: a.weight,
     reps: a.reps,
+    rpe: a.rpe,
+    pain: a.pain,
     note: a.note,
     updatedAt: new Date().toISOString(),
   };
