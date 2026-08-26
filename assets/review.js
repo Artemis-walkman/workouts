@@ -19,7 +19,7 @@ async function renderReview(root) {
 
   let key = localStorage.getItem(REVIEW_KEY_STORAGE) || "";
   if (!key) {
-    key = prompt("Пароль для просмотра:") || "";
+    key = (prompt("Пароль для просмотра:") || "").trim();
     if (!key) {
       root.innerHTML = `<div class="empty">Нужен пароль для просмотра.</div>`;
       return;

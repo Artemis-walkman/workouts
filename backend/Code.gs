@@ -39,8 +39,9 @@ function doPost(e) {
 
 function doGet(e) {
   return withJson(() => {
-    const viewToken = PropertiesService.getScriptProperties().getProperty("VIEW_TOKEN");
-    if (!viewToken || e.parameter.key !== viewToken) return { ok: false, error: "unauthorized" };
+    const viewToken = (PropertiesService.getScriptProperties().getProperty("VIEW_TOKEN") || "").trim();
+    const suppliedKey = (e.parameter.key || "").trim();
+    if (!viewToken || suppliedKey !== viewToken) return { ok: false, error: "unauthorized" };
     const rows = getSheet().getDataRange().getValues().slice(1); // skip header row
     const entries = rows.map(r => ({
       timestamp: r[0],
@@ -76,5 +77,13 @@ function withJson(fn) {
 // Run this once from the Apps Script editor (function dropdown > setup > Run) before
 // deploying. Change the password first — this is what review.html will ask you for.
 function setup() {
-  PropertiesService.getScriptProperties().setProperty("VIEW_TOKEN", "choose-a-password-here");
+  PropertiesService.getScriptProperties().setProperty("VIEW_TOKEN", "choose-a-password-here".trim());
+}
+
+// Run this from the editor (function dropdown > checkViewToken > Run), then View > Logs,
+// to see the password currently stored — handy for checking for stray spaces without
+// having to guess. Does not print anything sensitive beyond the password itself.
+function checkViewToken() {
+  const v = PropertiesService.getScriptProperties().getProperty("VIEW_TOKEN") || "";
+  Logger.log("VIEW_TOKEN is currently: [%s] (length %s)", v, v.length);
 }
