@@ -293,7 +293,9 @@ async function doSyncEntry(w, ex, idx) {
   try {
     await fetch(REPORT_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // text/plain avoids a CORS preflight (Apps Script Web Apps don't handle OPTIONS) —
+      // Apps Script still reads the raw JSON body fine via e.postData.contents.
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload),
     });
     if (hint) {
