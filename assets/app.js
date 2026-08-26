@@ -3,7 +3,7 @@
 // Where trainee-submitted results (weight/reps/notes) get sent. Empty string = not wired up yet;
 // entries still save to the trainee's own browser, just aren't relayed anywhere.
 // Set this to the Google Apps Script Web App URL after deploying (see review.html / SETUP.md).
-const REPORT_ENDPOINT = "";
+const REPORT_ENDPOINT = "https://script.google.com/macros/s/AKfycbw2phh72zDp4_Nrb4tj5NVbSoX5wboKdCfw8G61HCZsQrM4tol8F2kz2UvCXvw1XLy9/exec";
 
 // Anti-spam token, not a real secret (this file is public). Must match WRITE_TOKEN in the
 // Apps Script backend so random bots can't fill the sheet with junk.
