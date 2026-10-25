@@ -10,12 +10,20 @@ const REPORT_ENDPOINT = "https://script.google.com/macros/s/AKfycbw2phh72zDp4_Nr
 const SYNC_TOKEN = "Vh63qdFj6Jr8ggJ0ikuF0RrH";
 
 const RU_MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const RU_WEEKDAYS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 
 function fmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d)) return iso;
   return `${d.getDate()} ${RU_MONTHS[d.getMonth()]}`;
+}
+
+// "пн 27 окт", or "пн 27" when short
+function fmtWeekday(iso, short) {
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return iso;
+  return `${RU_WEEKDAYS[d.getDay()]} ${short ? d.getDate() : fmtDate(iso)}`;
 }
 
 // ---------------- Index page ----------------
@@ -66,6 +74,111 @@ function resolveWorkoutId() {
   return file;
 }
 
+// Fields a client file can set once at the top level; a session's own value wins over them.
+const SHARED_SESSION_FIELDS = ["meta", "notice", "avoid", "progression", "footer"];
+
+// A client file holds every session they've been given, grouped into blocks — the last block is the
+// current one, earlier ones are the archive. Files in the older single-workout shape become one block
+// with one session whose id is its date: that keeps the localStorage key
+// `workout-progress:<id>:<date>` unchanged, so progress entered before the migration survives.
+function normalizeProgram(raw, id) {
+  const blocks = Array.isArray(raw.blocks) && raw.blocks.length
+    ? raw.blocks
+    : [{ title: "", sessions: [{ ...raw, id: raw.date || "main" }] }];
+  const shared = {};
+  SHARED_SESSION_FIELDS.forEach(f => { if (raw[f] !== undefined) shared[f] = raw[f]; });
+  return {
+    id,
+    athlete: raw.athlete || "",
+    blocks: blocks.map(b => ({
+      title: b.title || "",
+      sessions: (b.sessions || []).map(s => ({ ...shared, ...s, id: String(s.id || s.date || "") })),
+    })).filter(b => b.sessions.length),
+  };
+}
+
+function sessionItems(s) {
+  return [
+    ...(s.warmup || []).map(e => ({ ...e, _section: "Разминка" })),
+    ...(s.exercises || []).map(e => ({ ...e, _section: "Основная часть" })),
+    ...(s.cooldown || []).map(e => ({ ...e, _section: "Заминка" })),
+  ];
+}
+
+function sessionStoreKey(program, s) {
+  return `workout-progress:${program.id}:${s.id}`;
+}
+
+function sessionStatus(program, s) {
+  const total = sessionItems(s).length;
+  const done = Object.values(loadState(sessionStoreKey(program, s)).done).filter(Boolean).length;
+  return { done, total, complete: total > 0 && done >= total };
+}
+
+// Sessions are done in order and the date is only a guide, so without an explicit #id the page
+// opens the first unfinished session of the current block.
+function pickSession(program) {
+  let wanted = location.hash.slice(1);
+  try { wanted = decodeURIComponent(wanted); } catch (e) {}
+  const byHash = program.blocks.flatMap(b => b.sessions).find(s => s.id === wanted);
+  if (byHash) return byHash;
+  const current = program.blocks[program.blocks.length - 1].sessions;
+  return current.find(s => !sessionStatus(program, s).complete) || current[current.length - 1];
+}
+
+function renderSessionNav(program, session) {
+  const block = program.blocks[program.blocks.length - 1];
+  const pills = block.sessions.map((s, i) => {
+    const st = sessionStatus(program, s);
+    const cls = ["session-pill", s.id === session.id ? "active" : "", st.complete ? "done" : ""].join(" ");
+    return `
+      <a class="${cls}" href="#${encodeURIComponent(s.id)}">
+        <span class="session-pill-num">${st.complete ? "✓" : i + 1}</span>
+        <span class="session-pill-date">${s.date ? fmtWeekday(s.date, true) : escapeHtml(s.title || "")}</span>
+      </a>`;
+  }).join("");
+  return `
+    ${block.title ? `<div class="session-block-title">${escapeHtml(block.title)}</div>` : ""}
+    <nav class="session-nav">${pills}</nav>
+  `;
+}
+
+function renderSessionHeading(program, session) {
+  const block = program.blocks.find(b => b.sessions.includes(session));
+  const pos = block.sessions.indexOf(session) + 1;
+  const parts = [`${pos} из ${block.sessions.length}`];
+  if (session.date) parts.push(`план: ${fmtWeekday(session.date)}`);
+  return `
+    <div class="session-heading">
+      <div class="session-title">${escapeHtml(session.title || "Тренировка")}</div>
+      <div class="session-meta">${parts.map(escapeHtml).join(" · ")}</div>
+    </div>
+  `;
+}
+
+function renderArchive(program, session) {
+  const past = program.blocks.slice(0, -1).reverse();
+  const count = past.reduce((n, b) => n + b.sessions.length, 0);
+  if (!count) return "";
+  const open = past.some(b => b.sessions.includes(session));
+  return `
+    <details class="archive" ${open ? "open" : ""}>
+      <summary>Прошедшие тренировки (${count})</summary>
+      ${past.map(b => `
+        ${b.title ? `<div class="archive-block-title">${escapeHtml(b.title)}</div>` : ""}
+        ${b.sessions.map(s => {
+          const st = sessionStatus(program, s);
+          return `
+            <a class="archive-link ${s === session ? "active" : ""}" href="#${encodeURIComponent(s.id)}">
+              <span>${st.complete ? "✓ " : ""}${escapeHtml(s.title || s.id)}${s.subtitle ? ` · ${escapeHtml(s.subtitle)}` : ""}</span>
+              <span class="archive-meta">${s.date ? fmtDate(s.date) + " · " : ""}${st.done}/${st.total}</span>
+            </a>`;
+        }).join("")}
+      `).join("")}
+    </details>
+  `;
+}
+
 async function renderWorkout() {
   const root = document.getElementById("workout-root");
   if (!root) return;
@@ -76,30 +189,42 @@ async function renderWorkout() {
     return;
   }
 
-  let w;
+  let program;
   try {
     const res = await fetch(`data/${encodeURIComponent(id)}.json`, { cache: "no-store" });
     if (!res.ok) throw new Error("not found");
-    w = await res.json();
+    program = normalizeProgram(await res.json(), id);
   } catch (e) {
     root.innerHTML = `<div class="empty">Тренировка не найдена.</div>`;
     return;
   }
 
-  document.title = w.title + " — тренировки";
+  if (!program.blocks.length) {
+    root.innerHTML = `<div class="empty">Тренировок пока нет.</div>`;
+    return;
+  }
 
-  // Each workout lives at its own link (one per person), so who this is doesn't need to be typed —
-  // it's baked into the data itself.
-  const storeKey = `workout-progress:${id}:${w.date || ""}`;
+  showSession(root, program, pickSession(program));
+  window.addEventListener("hashchange", () => {
+    showSession(root, program, pickSession(program));
+    window.scrollTo(0, 0);
+  });
+}
+
+function showSession(root, program, w) {
+  // With a single session the page looks exactly like the old one-workout page.
+  const multi = program.blocks.reduce((n, b) => n + b.sessions.length, 0) > 1;
+  document.title = `${w.title || "Тренировка"} — ${program.athlete || "тренировки"}`;
+
+  // Each client has their own link, so who this is doesn't need to be typed — it's baked into the
+  // data itself; each session keeps its own progress.
+  const storeKey = sessionStoreKey(program, w);
   const state = loadState(storeKey);
   const expanded = new Set();
 
-  const allBlocks = [
-    ...(w.warmup || []).map(e => ({ ...e, _section: "Разминка" })),
-    ...(w.exercises || []).map(e => ({ ...e, _section: "Основная часть" })),
-    ...(w.cooldown || []).map(e => ({ ...e, _section: "Заминка" })),
-  ];
+  const allBlocks = sessionItems(w);
   const sectionCount = [w.warmup, w.exercises, w.cooldown].filter(g => g && g.length).length;
+  const syncCtx = { program, session: w, storeKey, items: allBlocks };
 
   function doneCount() {
     return Object.values(state.done).filter(Boolean).length;
@@ -154,6 +279,7 @@ async function renderWorkout() {
     });
 
     root.innerHTML = `
+      ${multi ? renderSessionNav(program, w) + renderSessionHeading(program, w) : ""}
       ${w.subtitle || w.meta ? `
       <div class="workout-header">
         ${w.subtitle ? `<div class="workout-subtitle">${escapeHtml(w.subtitle)}</div>` : ""}
@@ -169,6 +295,7 @@ async function renderWorkout() {
       <div class="controls">
         <button class="btn" id="reset-btn">Сбросить</button>
       </div>
+      ${renderArchive(program, w)}
     `;
 
     root.querySelectorAll("[data-toggle]").forEach(head => {
@@ -203,7 +330,7 @@ async function renderWorkout() {
         const field = inp.dataset.field;
         state.actuals[idx] = { ...actualFor(idx), [field]: e.target.value };
         saveState(storeKey, state);
-        syncEntry(w, allBlocks[idx], idx);
+        syncEntry(syncCtx, idx);
       });
     });
 
@@ -252,15 +379,16 @@ function formatSpec(ex) {
 // (debounced per exercise), instead of a manual "submit" step.
 const syncTimers = {};
 
-function syncEntry(w, ex, idx) {
-  clearTimeout(syncTimers[idx]);
-  syncTimers[idx] = setTimeout(() => doSyncEntry(w, ex, idx), 600);
+function syncEntry(ctx, idx) {
+  const timerKey = `${ctx.storeKey}:${idx}`;
+  clearTimeout(syncTimers[timerKey]);
+  syncTimers[timerKey] = setTimeout(() => doSyncEntry(ctx, idx), 600);
 }
 
-async function doSyncEntry(w, ex, idx) {
+async function doSyncEntry({ program, session, storeKey, items }, idx) {
+  const ex = items[idx];
   const hint = document.getElementById(`sync-hint-${idx}`);
-  const stored = JSON.parse(localStorage.getItem(`workout-progress:${w.id}:${w.date || ""}`) || "{}");
-  const a = (stored.actuals && stored.actuals[idx]) || { weight: "", reps: "", rpe: "", pain: "", note: "" };
+  const a = loadState(storeKey).actuals[idx] || { weight: "", reps: "", rpe: "", pain: "", note: "" };
 
   if (!a.weight && !a.reps && !a.rpe && !a.pain && !a.note) return; // nothing to send yet
 
@@ -273,14 +401,19 @@ async function doSyncEntry(w, ex, idx) {
     return;
   }
 
-  // w.athlete identifies who this workout belongs to — set once when the workout is authored,
-  // since each person gets their own link (no name entry on the page).
+  // program.athlete identifies who this belongs to — set once when the program is authored, since
+  // each person gets their own link (no name entry on the page). workoutId + sessionId + exerciseIdx
+  // is the row key the backend upserts on, so re-editing a field updates that row instead of adding one.
   const payload = {
     token: SYNC_TOKEN,
-    athlete: w.athlete || w.title,
-    workoutId: w.id,
-    workoutTitle: w.title,
-    date: w.date,
+    athlete: program.athlete || session.title,
+    workoutId: program.id,
+    workoutTitle: session.title,
+    date: session.date,
+    sessionId: session.id,
+    sessionTitle: session.title || "",
+    sessionDate: session.date || "",
+    exerciseIdx: idx,
     exercise: ex.name,
     weight: a.weight,
     reps: a.reps,

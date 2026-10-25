@@ -447,24 +447,193 @@ a { color: inherit; }
   margin-bottom: 4px;
 }
 
-/* ---- Review page (trainer only) ---- */
+/* ---- Session picker (client programs with several sessions) ---- */
 
-.review-entry {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  margin-bottom: 10px;
-  box-shadow: var(--shadow);
+.session-block-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 8px;
 }
 
-.review-entry-head {
+.session-nav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0 -16px 14px;
+  padding: 2px 16px 6px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.session-nav::-webkit-scrollbar { display: none; }
+
+.session-pill {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 7px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.session-pill-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.session-pill.done .session-pill-num {
+  background: var(--done);
+  color: #fff;
+}
+
+.session-pill.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  font-weight: 600;
+}
+
+.session-heading {
+  margin: 0 0 6px;
+}
+
+.session-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.session-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.archive {
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.archive summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.archive-block-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 14px 0 6px;
+}
+
+.archive-link {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.archive-link.active { border-color: var(--accent); }
+
+.archive-meta {
+  flex: none;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+/* ---- Review page (trainer only) ---- */
+
+.review-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.review-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-filter-btn,
+.review-refresh {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.review-filter-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.review-refresh {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.review-session {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px 4px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+
+.review-session-head {
+  font-weight: 600;
+  font-size: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.review-session-meta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.review-row {
+  padding: 10px 0;
+}
+
+.review-row + .review-row {
+  border-top: 1px solid var(--border);
 }
 
 .review-athlete {
@@ -474,13 +643,7 @@ a { color: inherit; }
 
 .review-exercise {
   font-weight: 600;
-  font-size: 15px;
-}
-
-.review-workout {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 1px;
+  font-size: 14px;
 }
 
 .review-stats {

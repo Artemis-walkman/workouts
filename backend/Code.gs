@@ -10,6 +10,9 @@
 // 4. Deploy > New deployment > type: Web app. Execute as: Me. Who has access: Anyone.
 //    Click Deploy, authorize again if asked, then copy the Web App URL.
 // 5. Send that URL back so it can be set as REPORT_ENDPOINT in assets/app.js.
+//
+// UPDATING this code later: paste the new version, then Deploy > Manage deployments > pencil
+// (Edit) > Version: New version > Deploy. Don't create a *new* deployment — that changes the URL.
 
 const SHEET_NAME = "log";
 
@@ -17,12 +20,24 @@ const SHEET_NAME = "log";
 // keeps random bots from filling the sheet with junk.
 const WRITE_TOKEN = "Vh63qdFj6Jr8ggJ0ikuF0RrH";
 
+// Sheet columns, in order. The first ten are the original layout; the session columns were added
+// later at the end, so rows written before them simply have those cells empty.
+const COLUMNS = [
+  "timestamp", "workoutId", "athlete", "workoutTitle", "exercise", "weight", "reps", "rpe", "pain", "note",
+  "sessionId", "sessionTitle", "sessionDate", "exerciseIdx", "key",
+];
+const KEY_COL = COLUMNS.indexOf("key") + 1;
+
 function doPost(e) {
   return withJson(() => {
     const body = JSON.parse(e.postData.contents);
     if (body.token !== WRITE_TOKEN) return { ok: false, error: "unauthorized" };
-    getSheet().appendRow([
-      new Date(),
+
+    // One row per client + session + exercise: re-editing a field updates that row instead of
+    // appending a new one. Requests without a sessionId (an old cached copy of the site) append.
+    const hasSession = body.sessionId !== undefined && body.sessionId !== "";
+    const key = hasSession ? [body.workoutId, body.sessionId, body.exerciseIdx].join("|") : "";
+    const values = [
       body.workoutId || "",
       body.athlete || "",
       body.workoutTitle || "",
@@ -32,9 +47,36 @@ function doPost(e) {
       body.rpe || "",
       body.pain || "",
       body.note || "",
-    ]);
+      body.sessionId || "",
+      body.sessionTitle || "",
+      body.sessionDate || "",
+      hasSession ? String(body.exerciseIdx) : "",
+      key,
+    ];
+
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const sheet = getSheet();
+      const row = (key && findRowByKey(sheet, key)) || sheet.getLastRow() + 1;
+      sheet.getRange(row, 1).setValue(new Date());
+      // Plain-text format so Sheets doesn't turn ids/dates like "2026-09-04" or "8" into Date/number.
+      sheet.getRange(row, 2, 1, values.length).setNumberFormat("@").setValues([values]);
+    } finally {
+      lock.releaseLock();
+    }
     return { ok: true };
   });
+}
+
+function findRowByKey(sheet, key) {
+  const last = sheet.getLastRow();
+  if (last < 2) return 0;
+  const keys = sheet.getRange(2, KEY_COL, last - 1, 1).getValues();
+  for (let i = keys.length - 1; i >= 0; i--) {
+    if (keys[i][0] === key) return i + 2;
+  }
+  return 0;
 }
 
 function doGet(e) {
@@ -43,18 +85,9 @@ function doGet(e) {
     const suppliedKey = (e.parameter.key || "").trim();
     if (!viewToken || suppliedKey !== viewToken) return { ok: false, error: "unauthorized" };
     const rows = getSheet().getDataRange().getValues().slice(1); // skip header row
-    const entries = rows.map(r => ({
-      timestamp: r[0],
-      workoutId: r[1],
-      athlete: r[2],
-      workoutTitle: r[3],
-      exercise: r[4],
-      weight: r[5],
-      reps: r[6],
-      rpe: r[7],
-      pain: r[8],
-      note: r[9],
-    })).reverse(); // newest first
+    const entries = rows
+      .map(r => Object.fromEntries(COLUMNS.map((c, i) => [c, r[i] === undefined ? "" : r[i]])))
+      .reverse(); // roughly newest first; review.html sorts by timestamp itself
     return { ok: true, entries };
   });
 }
@@ -62,9 +95,10 @@ function doGet(e) {
 function getSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    sheet.appendRow(["timestamp", "workoutId", "athlete", "workoutTitle", "exercise", "weight", "reps", "rpe", "pain", "note"]);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  // Creates the header on a new sheet, and extends an older sheet's header with the new columns.
+  if (sheet.getLastColumn() < COLUMNS.length) {
+    sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
   }
   return sheet;
 }
