@@ -82,7 +82,7 @@ const SHARED_SESSION_FIELDS = ["meta", "notice", "avoid", "progression", "footer
 // with one session whose id is its date: that keeps the localStorage key
 // `workout-progress:<id>:<date>` unchanged, so progress entered before the migration survives.
 function normalizeProgram(raw, id) {
-  const blocks = Array.isArray(raw.blocks) && raw.blocks.length
+  const blocks = Array.isArray(raw.blocks)
     ? raw.blocks
     : [{ title: "", sessions: [{ ...raw, id: raw.date || "main" }] }];
   const shared = {};
