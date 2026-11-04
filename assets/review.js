@@ -137,8 +137,12 @@ function sessionCard({ items, latest }) {
   const first = items[0];
   const title = first.sessionTitle || first.workoutTitle || "Тренировка";
   const planned = String(first.sessionDate || "").slice(0, 10);
+  // The date the client says they did it — from the most recently updated row that has one.
+  const withDate = items.filter(e => e.doneDate).sort((a, b) => entryTime(b) - entryTime(a))[0];
+  const done = withDate ? String(withDate.doneDate).slice(0, 10) : "";
   const meta = [];
   if (planned) meta.push(`план ${fmtDate(planned)}`);
+  if (done) meta.push(`выполнена ${fmtDate(done)}`);
   if (latest) meta.push(`обновлено ${fmtTimestamp(latest)}`);
 
   return `
@@ -152,16 +156,46 @@ function sessionCard({ items, latest }) {
   `;
 }
 
+function present(v) {
+  return v !== "" && v !== undefined && v !== null;
+}
+
+// Per-set rows come as setsJson; if that can't be read, fall back to the readable "sets" text.
+function setsOf(e) {
+  if (e.setsJson) {
+    try {
+      const sets = JSON.parse(e.setsJson);
+      if (Array.isArray(sets)) return sets;
+    } catch (err) {}
+  }
+  return null;
+}
+
+function setLine(s, i) {
+  const parts = [];
+  if (present(s.weight) && present(s.reps)) parts.push(`${s.weight} кг × ${s.reps}`);
+  else if (present(s.weight)) parts.push(`${s.weight} кг`);
+  else if (present(s.reps)) parts.push(String(s.reps));
+  if (present(s.rir)) parts.push(`RIR ${s.rir}`);
+  return `<li><span class="review-set-num">${i + 1}.</span> ${escapeHtml(parts.join(" · "))}</li>`;
+}
+
 function exerciseRow(e) {
+  const sets = setsOf(e);
+  // Older rows (before per-set results) have one weight/reps/RPE for the whole exercise.
   const stats = [];
-  if (e.weight !== "") stats.push(`вес ${e.weight}`);
-  if (e.reps !== "") stats.push(`повторы ${e.reps}`);
-  if (e.rpe !== "") stats.push(`RPE ${e.rpe}`);
-  if (e.pain !== "") stats.push(`боль ${e.pain}`);
+  if (!sets && !e.sets) {
+    if (present(e.weight)) stats.push(`вес ${e.weight}`);
+    if (present(e.reps)) stats.push(`повторы ${e.reps}`);
+  }
+  if (present(e.rpe)) stats.push(`RPE ${e.rpe}`);
+  if (present(e.pain)) stats.push(`боль ${e.pain}`);
 
   return `
     <div class="review-row">
       <div class="review-exercise">${escapeHtml(e.exercise || "")}</div>
+      ${sets && sets.length ? `<ol class="review-sets">${sets.map(setLine).join("")}</ol>`
+        : e.sets ? `<div class="review-stats">${escapeHtml(e.sets)}</div>` : ""}
       ${stats.length ? `<div class="review-stats">${stats.map(escapeHtml).join(" · ")}</div>` : ""}
       ${e.note ? `<div class="review-note">${escapeHtml(e.note)}</div>` : ""}
     </div>

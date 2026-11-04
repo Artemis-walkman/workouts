@@ -14,17 +14,20 @@
 // UPDATING this code later: paste the new version, then Deploy > Manage deployments > pencil
 // (Edit) > Version: New version > Deploy. Don't create a *new* deployment — that changes the URL.
 
+// Each client gets their own sheet, named after their id (Rustam-K, Tatiana-Z, ...). "log" is the
+// old shared sheet: it is still read, and catches anything without a usable client id.
 const SHEET_NAME = "log";
 
 // Must match SYNC_TOKEN in assets/app.js. Not a real secret (app.js is public) — just
 // keeps random bots from filling the sheet with junk.
 const WRITE_TOKEN = "Vh63qdFj6Jr8ggJ0ikuF0RrH";
 
-// Sheet columns, in order. The first ten are the original layout; the session columns were added
-// later at the end, so rows written before them simply have those cells empty.
+// Sheet columns, in order. Columns were only ever added at the end, so older rows simply have the
+// later cells empty. "sets" is the readable per-set summary, "setsJson" the same data for review.html.
 const COLUMNS = [
   "timestamp", "workoutId", "athlete", "workoutTitle", "exercise", "weight", "reps", "rpe", "pain", "note",
   "sessionId", "sessionTitle", "sessionDate", "exerciseIdx", "key",
+  "doneDate", "sets", "setsJson",
 ];
 const KEY_COL = COLUMNS.indexOf("key") + 1;
 
@@ -52,12 +55,15 @@ function doPost(e) {
       body.sessionDate || "",
       hasSession ? String(body.exerciseIdx) : "",
       key,
+      body.doneDate || "",
+      body.setsText || "",
+      Array.isArray(body.sets) && body.sets.length ? JSON.stringify(body.sets) : "",
     ];
 
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
     try {
-      const sheet = getSheet();
+      const sheet = getSheet(body.workoutId);
       const row = (key && findRowByKey(sheet, key)) || sheet.getLastRow() + 1;
       sheet.getRange(row, 1).setValue(new Date());
       // Plain-text format so Sheets doesn't turn ids/dates like "2026-09-04" or "8" into Date/number.
@@ -84,23 +90,75 @@ function doGet(e) {
     const viewToken = (PropertiesService.getScriptProperties().getProperty("VIEW_TOKEN") || "").trim();
     const suppliedKey = (e.parameter.key || "").trim();
     if (!viewToken || suppliedKey !== viewToken) return { ok: false, error: "unauthorized" };
-    const rows = getSheet().getDataRange().getValues().slice(1); // skip header row
-    const entries = rows
-      .map(r => Object.fromEntries(COLUMNS.map((c, i) => [c, r[i] === undefined ? "" : r[i]])))
-      .reverse(); // roughly newest first; review.html sorts by timestamp itself
-    return { ok: true, entries };
+    // Every log sheet (one per client, plus the old shared "log") starts with "timestamp" in A1.
+    const entries = [];
+    SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(sheet => {
+      if (sheet.getLastRow() < 2 || sheet.getRange(1, 1).getValue() !== "timestamp") return;
+      sheet.getDataRange().getValues().slice(1).forEach(r => {
+        entries.push(Object.fromEntries(COLUMNS.map((c, i) => [c, r[i] === undefined ? "" : r[i]])));
+      });
+    });
+    return { ok: true, entries }; // review.html sorts by timestamp itself
   });
 }
 
-function getSheet() {
+function sheetNameFor(workoutId) {
+  // Sheet names can't contain : \ / ? * [ ] and are capped at 100 characters.
+  const name = String(workoutId || "").replace(/[:\\\/?*\[\]]/g, "-").trim().slice(0, 100);
+  return name || SHEET_NAME;
+}
+
+function getSheet(workoutId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  const name = sheetNameFor(workoutId);
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
   // Creates the header on a new sheet, and extends an older sheet's header with the new columns.
   if (sheet.getLastColumn() < COLUMNS.length) {
     sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
+    sheet.setFrozenRows(1);
   }
   return sheet;
+}
+
+// Optional, run once from the editor (function dropdown > splitLogByClient > Run): moves the rows of
+// the old shared "log" sheet onto each client's own sheet. Rows whose key is already on the client's
+// sheet are dropped (the client sheet's copy is newer). An emptied "log" is renamed "log (архив)".
+function splitLogByClient() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const log = ss.getSheetByName(SHEET_NAME);
+    if (!log || log.getLastRow() < 2) return;
+    const width = COLUMNS.length;
+    const rows = log.getRange(2, 1, log.getLastRow() - 1, width).getValues();
+    const keyIdx = COLUMNS.indexOf("key");
+    const stay = [];
+    const byClient = {};
+    rows.forEach(r => {
+      if (!r[1]) { stay.push(r); return; }
+      (byClient[sheetNameFor(r[1])] = byClient[sheetNameFor(r[1])] || []).push(r);
+    });
+    Object.keys(byClient).forEach(name => {
+      if (name === SHEET_NAME) { stay.push(...byClient[name]); return; }
+      const sheet = getSheet(name);
+      const fresh = byClient[name].filter(r => !r[keyIdx] || !findRowByKey(sheet, r[keyIdx]));
+      if (!fresh.length) return;
+      const start = sheet.getLastRow() + 1;
+      sheet.getRange(start, 2, fresh.length, width - 1).setNumberFormat("@");
+      sheet.getRange(start, 1, fresh.length, width).setValues(fresh);
+    });
+    log.getRange(2, 1, log.getLastRow() - 1, log.getLastColumn()).clearContent();
+    if (stay.length) {
+      log.getRange(2, 1, stay.length, width).setValues(stay);
+    } else if (!ss.getSheetByName(SHEET_NAME + " (архив)")) {
+      log.setName(SHEET_NAME + " (архив)");
+    }
+    Logger.log("Moved %s rows; %s left in log", rows.length - stay.length, stay.length);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function withJson(fn) {

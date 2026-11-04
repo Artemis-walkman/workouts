@@ -52,6 +52,10 @@ exercises/cooldown/avoid/progression/footer — see any existing `data/*.json` f
 - Skim the new exercise lists against the client's past sessions (they're all in the same file now) —
   carry forward anything still relevant, like exclusions called out for a reason (injury,
   dizziness, pain).
+- Give every exercise a numeric `"sets"`: the client's log shows that many per-set rows
+  (weight · reps · RIR), so a missing or wrong count means the wrong number of rows. Warm-up and
+  cardio items get `"sets": 1`. RIR shows only in the main part; set `"trackRir"` on an exercise
+  to override, and `"trackPain": true` where pain should be logged. `trackRpe` is no longer used.
 
 ## 3. Place exercise images
 

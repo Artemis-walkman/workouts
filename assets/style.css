@@ -447,6 +447,106 @@ a { color: inherit; }
   margin-bottom: 4px;
 }
 
+/* ---- Per-set results + session date ---- */
+
+.set-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.set-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 0.7fr) 24px;
+  gap: 6px;
+  align-items: center;
+}
+
+.set-row.no-rir {
+  grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1.2fr) 24px;
+}
+
+.set-row .actual-input {
+  width: 100%;
+}
+
+.set-head {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: -2px;
+}
+
+.set-head span {
+  padding-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pain-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pain-field .actual-input {
+  width: 64px;
+  flex: none;
+}
+
+.set-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.set-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.set-add {
+  margin-top: 8px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.session-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 14px 0 4px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.session-date input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 14px;
+  color: var(--text);
+  font-family: inherit;
+}
+
 /* ---- Session picker (client programs with several sessions) ---- */
 
 .session-block-title {
@@ -634,6 +734,23 @@ a { color: inherit; }
 
 .review-row + .review-row {
   border-top: 1px solid var(--border);
+}
+
+.review-sets {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 13px;
+}
+
+.review-sets li + li {
+  margin-top: 2px;
+}
+
+.review-set-num {
+  display: inline-block;
+  min-width: 18px;
+  color: var(--text-muted);
 }
 
 .review-athlete {

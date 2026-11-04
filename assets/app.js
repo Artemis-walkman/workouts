@@ -230,7 +230,16 @@ function showSession(root, program, w) {
     return Object.values(state.done).filter(Boolean).length;
   }
   function actualFor(idx) {
-    return state.actuals[idx] || { weight: "", reps: "", rpe: "", pain: "", note: "" };
+    return normalizeActual(state.actuals[idx]);
+  }
+  // The date the session was actually done: today, the first time anything is entered or ticked.
+  function stampDate() {
+    if (!state.date) state.date = todayIso();
+  }
+  function commit(idx) {
+    stampDate();
+    saveState(storeKey, state);
+    if (idx !== undefined) syncEntry(syncCtx, idx);
   }
 
   function draw() {
@@ -266,11 +275,9 @@ function showSession(root, program, w) {
           </div>
           ${isOpen ? `
           ${cues.length ? `<ul class="exercise-cues">${cues.map(c => `<li>${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+          ${renderSetRows(ex, idx, a)}
           <div class="actual-row" data-idx="${idx}">
-            <input class="actual-input" type="text" inputmode="decimal" placeholder="вес, кг" data-field="weight" data-idx="${idx}" value="${escapeAttr(a.weight)}">
-            <input class="actual-input" type="text" placeholder="повторы / время" data-field="reps" data-idx="${idx}" value="${escapeAttr(a.reps)}">
-            ${ex.trackRpe ? `<input class="actual-input actual-small" type="number" min="1" max="10" step="0.5" placeholder="RPE" data-field="rpe" data-idx="${idx}" value="${escapeAttr(a.rpe)}">` : ""}
-            ${ex.trackPain ? `<input class="actual-input actual-small" type="number" min="0" max="10" step="1" placeholder="боль" data-field="pain" data-idx="${idx}" value="${escapeAttr(a.pain)}">` : ""}
+            ${ex.trackPain ? `<label class="pain-field"><span>боль 0–10</span><input class="actual-input actual-small" type="number" min="0" max="10" step="1" placeholder="—" data-field="pain" data-idx="${idx}" value="${escapeAttr(a.pain)}"></label>` : ""}
             <input class="actual-input actual-note" type="text" placeholder="заметка" data-field="note" data-idx="${idx}" value="${escapeAttr(a.note)}">
           </div>
           <div class="sync-hint" id="sync-hint-${idx}"></div>` : ""}
@@ -286,6 +293,10 @@ function showSession(root, program, w) {
         ${w.meta ? `<div class="workout-meta">${escapeHtml(w.meta)}</div>` : ""}
       </div>` : ""}
       ${renderCallout(w.notice, "callout-notice")}
+      <label class="session-date">
+        <span>Дата тренировки</span>
+        <input type="date" id="session-date" value="${escapeAttr(state.date || todayIso())}">
+      </label>
       <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
       <div class="progress-label"><span>${done} / ${total} упражнений</span><span>${pct}%</span></div>
       ${sections}
@@ -311,6 +322,7 @@ function showSession(root, program, w) {
         evt.stopPropagation();
         const idx = Number(btn.dataset.done);
         state.done[idx] = !state.done[idx];
+        if (state.done[idx]) stampDate();
         saveState(storeKey, state);
         draw();
       });
@@ -328,16 +340,54 @@ function showSession(root, program, w) {
       inp.addEventListener("change", (e) => {
         const idx = Number(inp.dataset.idx);
         const field = inp.dataset.field;
-        state.actuals[idx] = { ...actualFor(idx), [field]: e.target.value };
-        saveState(storeKey, state);
-        syncEntry(syncCtx, idx);
+        const a = actualFor(idx);
+        if (inp.dataset.set !== undefined) {
+          const s = Number(inp.dataset.set);
+          while (a.sets.length <= s) a.sets.push(emptySet());
+          a.sets[s] = { ...a.sets[s], [field]: e.target.value };
+        } else {
+          a[field] = e.target.value;
+        }
+        state.actuals[idx] = a;
+        commit(idx);
       });
+    });
+
+    root.querySelectorAll("[data-add-set]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.addSet);
+        const a = actualFor(idx);
+        const rows = Math.max(plannedSets(allBlocks[idx]), a.sets.length);
+        while (a.sets.length < rows + 1) a.sets.push(emptySet());
+        state.actuals[idx] = a;
+        saveState(storeKey, state);
+        draw();
+      });
+    });
+
+    root.querySelectorAll("[data-remove-set]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.idx);
+        const a = actualFor(idx);
+        a.sets.splice(Number(btn.dataset.removeSet), 1);
+        state.actuals[idx] = a;
+        commit(idx);
+        draw();
+      });
+    });
+
+    // Changing the date re-sends every filled-in exercise so the sheet gets the new date too.
+    document.getElementById("session-date").addEventListener("change", (e) => {
+      state.date = e.target.value || todayIso();
+      saveState(storeKey, state);
+      allBlocks.forEach((_, idx) => { if (hasResults(actualFor(idx))) syncEntry(syncCtx, idx); });
     });
 
     document.getElementById("reset-btn").addEventListener("click", () => {
       if (!confirm("Сбросить отметки по этой тренировке?")) return;
       state.done = {};
       state.actuals = {};
+      state.date = "";
       saveState(storeKey, state);
       draw();
     });
@@ -375,6 +425,84 @@ function formatSpec(ex) {
   return parts.map(escapeHtml).join(" · ");
 }
 
+// ---------------- Per-set results ----------------
+
+function emptySet() {
+  return { weight: "", reps: "", rir: "" };
+}
+
+// Results used to be one weight/reps/RPE per exercise; those become the first set so nothing is lost.
+function normalizeActual(a) {
+  a = a || {};
+  const sets = Array.isArray(a.sets)
+    ? a.sets.map(s => ({ ...emptySet(), ...s }))
+    : (a.weight || a.reps ? [{ weight: a.weight || "", reps: a.reps || "", rir: "" }] : []);
+  return { sets, rpe: a.rpe || "", pain: a.pain || "", note: a.note || "" };
+}
+
+function setFilled(s) {
+  return !!(s.weight || s.reps || s.rir);
+}
+
+function hasResults(a) {
+  return a.sets.some(setFilled) || !!(a.pain || a.note);
+}
+
+// Planned set count: `sets` if it's a number, else a leading "3×" in the spec, else 1.
+function plannedSets(ex) {
+  const n = Number(ex.sets);
+  if (Number.isInteger(n) && n > 0) return n;
+  const m = /^\s*(\d+)\s*[×xх]/i.exec(ex.spec || "");
+  return m ? Number(m[1]) : 1;
+}
+
+// RIR only makes sense for working sets; warm-up and cool-down items are mostly time/cardio.
+function tracksRir(ex) {
+  return ex.trackRir !== undefined ? !!ex.trackRir : ex._section === "Основная часть";
+}
+
+function renderSetRows(ex, idx, a) {
+  const planned = plannedSets(ex);
+  const rows = Math.max(planned, a.sets.length);
+  const rir = tracksRir(ex);
+  let html = "";
+  for (let s = 0; s < rows; s++) {
+    const v = a.sets[s] || emptySet();
+    const attrs = `data-idx="${idx}" data-set="${s}"`;
+    html += `
+      <div class="set-row ${rir ? "" : "no-rir"}">
+        <span class="set-num">${s + 1}</span>
+        <input class="actual-input" type="text" inputmode="decimal" placeholder="вес, кг" data-field="weight" ${attrs} value="${escapeAttr(v.weight)}">
+        <input class="actual-input" type="text" placeholder="повторы / время" data-field="reps" ${attrs} value="${escapeAttr(v.reps)}">
+        ${rir ? `<input class="actual-input" type="text" inputmode="decimal" placeholder="RIR" data-field="rir" ${attrs} value="${escapeAttr(v.rir)}">` : ""}
+        ${s >= planned ? `<button class="set-remove" data-remove-set="${s}" data-idx="${idx}" aria-label="Удалить подход">×</button>` : ""}
+      </div>`;
+  }
+  return `
+    <div class="set-list">
+      <div class="set-row set-head ${rir ? "" : "no-rir"}">
+        <span></span><span>вес, кг</span><span>повторы / время</span>${rir ? "<span>RIR</span>" : ""}
+      </div>
+      ${html}
+    </div>
+    <button class="set-add" data-add-set="${idx}">+ подход</button>
+  `;
+}
+
+// "40×8 RIR 2 · 42,5×8 RIR 1" — readable form that goes into the trainer's sheet.
+function formatSets(sets) {
+  return sets.filter(setFilled).map(s => {
+    let t = s.weight && s.reps ? `${s.weight}×${s.reps}` : (s.weight ? `${s.weight} кг` : s.reps);
+    if (s.rir) t += `${t ? " " : ""}RIR ${s.rir}`;
+    return t;
+  }).join(" · ");
+}
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 // Sends the single edited exercise's current values whenever the trainee finishes typing
 // (debounced per exercise), instead of a manual "submit" step.
 const syncTimers = {};
@@ -388,9 +516,11 @@ function syncEntry(ctx, idx) {
 async function doSyncEntry({ program, session, storeKey, items }, idx) {
   const ex = items[idx];
   const hint = document.getElementById(`sync-hint-${idx}`);
-  const a = loadState(storeKey).actuals[idx] || { weight: "", reps: "", rpe: "", pain: "", note: "" };
+  const stored = loadState(storeKey);
+  const a = normalizeActual(stored.actuals[idx]);
 
-  if (!a.weight && !a.reps && !a.rpe && !a.pain && !a.note) return; // nothing to send yet
+  if (!hasResults(a) && !a.rpe) return; // nothing to send yet
+  const sets = a.sets.filter(setFilled);
 
   if (!REPORT_ENDPOINT) {
     if (hint) {
@@ -415,8 +545,11 @@ async function doSyncEntry({ program, session, storeKey, items }, idx) {
     sessionDate: session.date || "",
     exerciseIdx: idx,
     exercise: ex.name,
-    weight: a.weight,
-    reps: a.reps,
+    doneDate: stored.date || "",
+    sets,
+    setsText: formatSets(sets),
+    weight: "",
+    reps: "",
     rpe: a.rpe,
     pain: a.pain,
     note: a.note,
@@ -446,10 +579,10 @@ function loadState(key) {
     const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { done: parsed.done || {}, actuals: parsed.actuals || {} };
+      return { done: parsed.done || {}, actuals: parsed.actuals || {}, date: parsed.date || "" };
     }
   } catch (e) {}
-  return { done: {}, actuals: {} };
+  return { done: {}, actuals: {}, date: "" };
 }
 
 function saveState(key, state) {
